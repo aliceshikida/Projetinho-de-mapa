@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mapa de Reclamações</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #f0f4ff;
+      color: #333;
+    }
+
+    h2 {
+      text-align: center;
+      padding: 20px;
+      color: #004080;
+      background-color: #e6f0ff;
+      margin: 0;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    #map {
+      height: 82vh;
+      width: 100%;
+    }
+
+    #logoutBtn {
+      position: fixed;
+      top: 15px;
+      right: 15px;
+      z-index: 1000;
+      padding: 10px 20px;
+      background: #d9534f;
+      color: white;
+      border: none;
+      cursor: pointer;
+      border-radius: 6px;
+      font-weight: bold;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+
+    #logoutBtn:hover {
+      background-color: #c9302c;
+    }
+
+    /* Modal e overlay */
+    #overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.4);
+      z-index: 1000;
+    }
+
+    #modal {
+      display: none;
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      z-index: 1001;
+      width: 90%;
+      max-width: 400px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+
+    #modal h3 {
+      margin-top: 0;
+      color: #004080;
+      text-align: center;
+    }
+
+    #commentInput {
+      width: 100%;
+      height: 100px;
+      padding: 10px;
+      font-size: 14px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      resize: none;
+      margin-bottom: 15px;
+    }
+
+    #saveCommentBtn, #cancelBtn {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    #saveCommentBtn {
+      background-color: #007bff;
+      color: white;
+      margin-right: 10px;
+    }
+
+    #saveCommentBtn:hover {
+      background-color: #0056b3;
+    }
+
+    #cancelBtn {
+      background-color: #ccc;
+    }
+
+    #cancelBtn:hover {
+      background-color: #999;
+    }
+  </style>
+</head>
+<body>
+  <button id="logoutBtn">Logout</button>
+  <h2>📍 Mapa de Reclamações</h2>
+  <div id="map"></div>
+
+  <!-- Modal -->
+  <div id="overlay"></div>
+  <div id="modal">
+    <h3>Nova Reclamação</h3>
+    <textarea id="commentInput" placeholder="Descreva sua reclamação..."></textarea><br />
+    <button id="saveCommentBtn">Salvar</button>
+    <button id="cancelBtn">Cancelar</button>
+  </div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    let map;
+    let clickedLatLng = null;
+
+    fetch('/api/user', { credentials: 'include' })
+      .then(res => res.json())
+      .then(data => {
+        if (!data.loggedIn) {
+          window.location.href = '/login.html';
+        } else {
+          getLocationAndInitMap();
+        }
+      });
+
+    function getLocationAndInitMap() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(pos => {
+          initMap(pos.coords.latitude, pos.coords.longitude);
+        }, err => {
+          alert('Não foi possível pegar sua localização. Usando localização padrão.');
+          initMap(-23.55052, -46.633308);
+        });
+      } else {
+        alert('Seu navegador não suporta geolocalização.');
+        initMap(-23.55052, -46.633308);
+      }
+    }
+
+    function initMap(lat, lng) {
+      map = L.map('map').setView([lat, lng], 13);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+      }).addTo(map);
+
+      fetch('/api/pins', { credentials: 'include' })
+        .then(res => res.json())
+        .then(pins => {
+          pins.forEach(pin => {
+            L.marker([pin.lat, pin.lng]).addTo(map)
+              .bindPopup(`<b>${pin.usuario_email || 'Anônimo'}</b><br>${pin.comentario}`);
+          });
+        });
+
+      map.on('click', function(e) {
+        clickedLatLng = e.latlng;
+        showModal();
+      });
+    }
+
+    const modal = document.getElementById('modal');
+    const overlay = document.getElementById('overlay');
+    const commentInput = document.getElementById('commentInput');
+    const saveBtn = document.getElementById('saveCommentBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+
+    function showModal() {
+      modal.style.display = 'block';
+      overlay.style.display = 'block';
+      commentInput.value = '';
+      commentInput.focus();
+    }
+
+    function hideModal() {
+      modal.style.display = 'none';
+      overlay.style.display = 'none';
+      commentInput.value = '';
+    }
+
+    saveBtn.onclick = () => {
+      const comment = commentInput.value.trim();
+      if (!comment) return alert('Comentário obrigatório');
+
+      const pinData = {
+        lat: clickedLatLng.lat,
+        lng: clickedLatLng.lng,
+        comentario: comment
+      };
+
+      fetch('/api/pins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(pinData)
+      })
+      .then(res => res.json())
+      .then(data => {
+        L.marker([pinData.lat, pinData.lng]).addTo(map)
+          .bindPopup(comment).openPopup();
+        hideModal();
+      })
+      .catch(() => alert('Erro ao salvar reclamação'));
+    };
+
+    cancelBtn.onclick = hideModal;
+
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+      fetch('/api/logout', {
+        method: 'POST',
+        credentials: 'include'
+      }).then(res => res.json())
+        .then(data => {
+          alert(data.message);
+          window.location.href = '/login.html';
+        });
+    });
+  </script>
+</body>
+</html>
